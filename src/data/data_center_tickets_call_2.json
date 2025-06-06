@@ -1138,5 +1138,64 @@
     "end_time": null,
     "main_office_ticket": true,
     "ticket_number": "GBF-1094"
+  },{
+    "start_time": "2025-06-03T17:14:43.868730",
+    "response_time": "2025-06-03T18:52:43.868730",
+    "on_site_decision": null,
+    "time_on_site": null,
+    "issue_description": "{ \"issue\": {\n\"### Issue\":\n\"Inbound traffic to our Apache web server is being dropped due to a mysterious kernel panic. The server, named 'web01', has been running without issue for months until this morning when a sudden spike in traffic occurred. System logs indicate that the server froze at 2:45 AM with no error messages preceding the crash.\"\n\n}, \"### Fix Steps\": [\n1.769\n]\n\n}",
+    "responsibility": "partial",
+    "network": "Core",
+    "end_time": null,
+    "main_office_ticket": true,
+    "ticket_number": "GBF-1095"
+  },
+  {
+    "start_time": "2025-06-03T17:16:26.930710",
+    "response_time": "2025-06-03T18:49:26.930710",
+    "on_site_decision": null,
+    "time_on_site": null,
+    "issue_description": "{ \"id\": \"issue001\" }",
+    "responsibility": "yes",
+    "network": "Core",
+    "end_time": null,
+    "main_office_ticket": true,
+    "ticket_number": "GBF-1096"
+  },
+  {
+    "start_time": "2025-06-04T17:11:41.066725",
+    "response_time": "2025-06-04T17:59:41.066725",
+    "on_site_decision": "2025-06-04T18:46:41.066725",
+    "time_on_site": "2025-06-04T19:10:41.066725",
+    "issue_description": "{ \"issue\":\n\n\"**Error 500: Apache Server Down**\"\n\n}",
+    "responsibility": "partial",
+    "network": "Backbone",
+    "end_time": null,
+    "main_office_ticket": false,
+    "ticket_number": "GBF-1097"
+  },
+  {
+    "start_time": "2025-06-05T17:13:46.044131",
+    "response_time": "2025-06-05T17:44:46.044131",
+    "on_site_decision": null,
+    "time_on_site": null,
+    "issue_description": "{ \"issue\": \"Failed NFS Mount on Database Server\", \"fix_steps\": [ { \"step\": 1, \"command\": \"```bash\\nsudo mount -t nfs4 -o vers=4.2,nolock,noexec,proto=tcp server:/mnt/database /mnt/db ```\", \"description\": \"Mount the NFS share with version 4.2 and appropriate options\" }, { \"step\": 2, \"command\": \"```bash\\nsudo chown -R dbuser:dbgroup /mnt/db ```\", \"description\": \"Change ownership of the mounted directory to the database user group\" }, { \"step\": 3, \"command\": \"```bash\\ngrep 'nfs' /var/log/syslog | grep -v 'already mounted' > nfs.log ```\", \"description\": \"Capture NFS-related logs and filter out repeated messages\" } ], \"root_cause\": \"The issue arose due to an incorrect NFS mount option causing the database server to fail mounting the share, resulting in downtime for critical applications.\" }",
+    "responsibility": "yes",
+    "network": "Core",
+    "end_time": null,
+    "main_office_ticket": true,
+    "ticket_number": "GBF-1098"
+  },
+  {
+    "start_time": "2025-06-05T17:15:35.271163",
+    "response_time": "2025-06-05T17:54:35.271163",
+    "on_site_decision": null,
+    "time_on_site": null,
+    "issue_description": "{ \"issue\": {\n    \"description\": \"Linux Server Issues in Data Center Environment\",\n    \"steps\": [\n        {\n            \"step\": 1,\n            \"bash-command\": {\n                \"code\": \"sudo mount -a\"\n            }\n        },\n        {\n            \"step\": 2,\n            \"bash-command\": {\n                \"code\": \"sudo df -h\"\n            }\n        }\n    ],\n    \"root-cause\": {\n        \"description\": \"The root cause of the issue is due to a failure in disk partitioning during deployment.\"\n    }\n} }",
+    "responsibility": "no",
+    "network": "Edge",
+    "end_time": "2025-06-05T20:15:35.271163",
+    "main_office_ticket": true,
+    "ticket_number": "GBF-1099"
   }
 ]
