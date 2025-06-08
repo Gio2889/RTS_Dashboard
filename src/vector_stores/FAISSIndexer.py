@@ -27,7 +27,7 @@ class FaissIndexer(VectorIndexer):
 
         print("--- Initializing ---")
         self.initialize_state()
-        self._load_from_disk()
+        #self._load_from_disk()
     
     def initialize_state(self):
         """Initialize the FAISS index with an empty state"""
@@ -198,7 +198,7 @@ def retrieve_full_entry(vector_store,doc_store,query: str, k: int = 5):
     """Search vector store and return full JSON entries"""
     # 1. Perform similarity search
     results = vector_store.similarity_search(query, k=k)
-    
+    print(results)
     # 2. Group results by document ID
     grouped_results = {}
     for doc in results:
@@ -262,64 +262,72 @@ def testing_function():
         "content": "NASA's new telescope has captured unprecedented images of distant galaxies."
     }
 ]
+    with open("src/data/data_center_tickets_call_1.json",'r') as f:
+        json_data = json.load(f)
     all_docs = []
     doc_store = {}  # To store full JSON entries for retrieval
-
-    fais_indexer = FaissIndexer("../data/","faiss_index.fais","en_core_web_md")
+    print("init from test function")
+    fais_indexer = FaissIndexer("src/data/","faiss_index.fais","en_core_web_md")
     vector_store = fais_indexer.vector_store
 
     text_splitter = RecursiveCharacterTextSplitter(
-    chunk_size=300,          # Character-based splitting
+    chunk_size=1500,          # Character-based splitting
     chunk_overlap=50,
     separators=["\n\n", "\n", ". ", " ", ""]
 )
 
-    for entry in json_data:
-        doc_store[entry["id"]] = entry  # Store full entry
+    for entry in json_data[:5]:
+        print(entry["ticket_number"])
+        doc_store[entry["ticket_number"]] = entry  # Store full entry
         
         # Only chunk if content exceeds threshold (300 chars)
-        if len(entry["content"]) > 300:
-            chunks = text_splitter.split_text(entry["content"])
+        if len(entry["issue_description"]) > 1500:
+            chunks = text_splitter.split_text(entry["issue_description"])
             for i, chunk in enumerate(chunks):
                 metadata = {
-                    "id": entry["id"],
-                    "title": entry["title"],
-                    "author": entry["author"],
+                    "id": entry["ticket_number"],
+                    "network": entry["network"],
+                    "responsibility": entry["responsibility"],
+                    "main_ticket": entry["main_office_ticket"],
                     "chunk_index": i,
                     "total_chunks": len(chunks),
-                    "original_length": len(entry["content"])
+                    "original_length": len(entry["issue_description"])
                 }
                 all_docs.append(Document(page_content=chunk, metadata=metadata))
-            print(f"processed entry {entry["id"]} in {len(chunks)} chunks")
+            print(f"processed entry {entry["ticket_number"]} in {len(chunks)} chunks")
         else:
             metadata = {
-                "id": entry["id"],
-                "title": entry["title"],
-                "author": entry["author"],
+                "id": entry["ticket_number"],
+                "network": entry["network"],
+                "responsibility": entry["responsibility"],
+                "main_ticket": entry["main_office_ticket"],
                 "chunk_index": 0,
                 "total_chunks": 1
             }
-            all_docs.append(Document(page_content=entry["content"], metadata=metadata))
+            all_docs.append(Document(page_content=entry["issue_description"], metadata=metadata))
 
     ## adding docsvia the main method
     #vector_store.add_documents(all_docs)
-
+    print("--- all docs ---")
+    print(all_docs)
     fais_indexer.add_documents(all_docs)
 
-    fais_indexer = None
+    # fais_indexer = None
 
-    fais_indexer = FaissIndexer("../data/","faiss_index.fais","en_core_web_md")
+    # fais_indexer = FaissIndexer("src/data/","faiss_index.fais","en_core_web_md")
 
-    query = "Alzheimer's disease treatment"
+    query = "Linux Servers with high cpu usage"
     results = retrieve_full_entry(vector_store,doc_store,query)
 
     print("\nTop results for query:", query)
     for i, res in enumerate(results):
         print(f"\nResult #{i+1}:")
-        print(f"Title: {res['full_entry']['title']}")
-        print(f"Author: {res['full_entry']['author']}")
-        print(f"Content Preview: {res['assembled_content'][:150]}...")
-        print(f"Retrieved {res['retrieved_chunks']} chunks from {res['full_entry']['id']}")
+        print(f"id: {res['full_entry']['ticket_number']}")
+        print(f"network: {res['full_entry']['network']}")
+        print(f"responsibility: {res['full_entry']['responsibility']}")
+        print(f"main_ticket: {res['full_entry']['main_office_ticket']}")
+        print(f"content: {res['assembled_content'][:150]}...")
+        print(f"Retrieved {res['retrieved_chunks']} chunks from {res['full_entry']['ticket_number']}")
 
 if __name__ == '__main__':
     testing_function()
