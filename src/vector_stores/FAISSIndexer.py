@@ -1,8 +1,14 @@
 from VectorIndexer import VectorIndexer
 from langchain_community.vectorstores import FAISS
+from langchain_community.docstore.in_memory import InMemoryDocstore
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain.text_splitter import TokenTextSplitter
 from langchain_community.embeddings import SpacyEmbeddings
 from langchain_core.documents import Document
+import uuid
+import faiss
+import re
+import unicodedata
 import json
 import spacy
 import os
@@ -18,7 +24,7 @@ class FaissIndexer(VectorIndexer):
         self.nlp = spacy.load(spacy_model_name)
         self.vector_size = self.nlp.vocab.vectors_length
         self.dimension = self.nlp("test").vector.shape[0]
-        
+        print(f"dimension:{self.dimension}")
         self.vector_store = None
         self.doc_store = {}  # Stores all documents by ID
         self.id_to_docstore_id = {}  # Maps our ID to FAISS docstore ID
@@ -32,55 +38,27 @@ class FaissIndexer(VectorIndexer):
     def initialize_state(self):
         """Initialize the FAISS index with an empty state"""
         empty_docs = [Document(page_content="", metadata={})]
-        self.vector_store = FAISS.from_documents(
 
-            documents=empty_docs,
-            embedding=self.embedding
+        # initialize vector stor
+        self.vector_store = FAISS(
+            embedding_function=self.embedding,
+            index=faiss.IndexFlatL2(self.dimension),
+            docstore=InMemoryDocstore(),
+            index_to_docstore_id={}
         )
         # Remove the dummy document
-        self.vector_store.delete([self.vector_store.index_to_docstore_id[0]])
         self.doc_store = {}
         self.id_to_docstore_id = {}
         self.initialized = True
 
     def add_documents(self, documents : list[Document]):
-         if not self.initialized:
-             self.initialize_state()
-         self.vector_store.add_documents(documents)
-         self._save_to_disk()
-
-
-    # def add_non_proc_documents(self, ids : list , documents : list , metadatas: list):
-    #     """
-    #     Add documents to the index
-        
-    #     Args:
-    #         ids: List of unique document IDs
-    #         documents: List of document contents 
-    #         metadatas: List of metadata dictionaries
-    #     """
-    #     if not self.initialized:
-    #         self.initialize_state()
-        
-    #     # Create Document objects
-    #     docs = []
-    #     for doc_id, content, meta in zip(ids, documents, metadatas):
-    #         # Add our ID to metadata for retrieval
-    #         meta["document_id"] = doc_id
-    #         docs.append(Document(page_content=content, metadata=meta))
-
-    #         # vector store should always exist no check needed here
-    #         self.vector_store.add_documents(docs)
-        
-    #     # Update our ID mapping
-    #     for doc_id, doc in zip(ids, docs):
-    #         # Find the FAISS docstore ID for our document
-    #         # This assumes documents are added in the same order
-    #         idx = self.vector_store.docstore._dict
-    #         for uuid, stored_doc in idx.items():
-    #             if stored_doc.metadata.get("document_id") == doc_id:
-    #                 self.id_to_docstore_id[doc_id] = uuid
-    #                 break
+        if not self.initialized:
+            self.initialize_state()
+        print(f"len of docs {len(documents)}")
+        self.id_to_docstore_id = { f"{doc.metadata['id']}_{doc.metadata["chunk_index"]}": str(uuid.uuid4()) for doc in documents }
+        ids = [val for key,val in self.id_to_docstore_id.items()]
+        self.vector_store.add_documents(documents,ids=ids)
+        self._save_to_disk()
     
     def update_documents(self, ids, documents, metadatas):
         # For simplicity, remove and re-add (FAISS doesn't support direct updates)
@@ -194,37 +172,128 @@ class FaissIndexer(VectorIndexer):
             self.vector_store.delete(uuids_to_delete)
 
 
-def retrieve_full_entry(vector_store,doc_store,query: str, k: int = 5):
-    """Search vector store and return full JSON entries"""
-    # 1. Perform similarity search
-    results = vector_store.similarity_search(query, k=k)
-    print(results)
-    # 2. Group results by document ID
-    grouped_results = {}
-    for doc in results:
-        doc_id = doc.metadata["id"]
-        if doc_id not in grouped_results:
-            grouped_results[doc_id] = {
-                "chunks": [],
-                "metadata": {k:v for k,v in doc.metadata.items() if k != "chunk_index"}
-            }
-        grouped_results[doc_id]["chunks"].append(doc)
+def clean_text(text, lower=False, remove_special_chars=False, max_consecutive_whitespace=3):
+    """
+    Cleans technical text while preserving critical details like:
+    - Code snippets
+    - IP addresses
+    - File paths
+    - Command examples
     
-    # 3. Retrieve full entries and assemble context
+    Args:
+        text (str): Input text to clean
+        lower (bool): Whether to lowercase text (default=False)
+        remove_special_chars (bool): Remove non-alphanumeric chars (default=False)
+        max_consecutive_whitespace (int): Max allowed consecutive whitespaces
+    
+    Returns:
+        str: Cleaned technical text
+    """
+    if not isinstance(text, str) or not text.strip():
+        return text
+
+    # Normalize Unicode (e.g., convert curly quotes to straight)
+    text = unicodedata.normalize('NFKC', text)
+    
+    # Preserve technical patterns before cleaning
+    preserved_patterns = {
+        r'(?:\[\d+\])': ' ',       # Remove [123] style indexes
+        r'`(.+?)`': r'\1',          # Keep code inside backticks but remove ticks
+        r'(?<!\\)\\(?!\\)': ' ',   # Remove isolated backslashes
+    }
+    
+    for pattern, replacement in preserved_patterns.items():
+        text = re.sub(pattern, replacement, text)
+    
+    # Remove non-printable characters except tabs/newlines
+    text = re.sub(r'[\x00-\x08\x0b-\x0c\x0e-\x1f\x7f-\x9f]', '', text)
+    
+    # Handle whitespace normalization
+    text = re.sub(r'\t', ' ', text)                      # Tabs to spaces
+    text = re.sub(r'\r\n', '\n', text)                   # Normalize line endings
+    text = re.sub(r'(?<!\n)\n(?!\n)', ' ', text)         # Single newlines to space
+    text = re.sub(r' {2,}', ' ', text)                   # Multiple spaces to one
+    text = re.sub(r'\n{2,}', '\n\n', text)               # Limit consecutive newlines
+    
+    # Optional: Remove special characters (preserves tech patterns)
+    if remove_special_chars:
+        # Keep: alphanumeric, basic punctuation, tech symbols (@.:/_~-)
+        text = re.sub(r'[^\w\s@.:/~_-]', '', text)
+    
+    # Optional case normalization
+    if lower:
+        # Preserve case in known acronyms (IP, CPU, HTTP)
+        acronyms = {'ip', 'cpu', 'gpu', 'ram', 'http', 'https', 'ssh', 'tcp', 'udp'}
+        words = []
+        for word in text.split():
+            if word.lower() in acronyms and word.isupper():
+                words.append(word.lower())
+            else:
+                words.append(word.lower() if lower else word)
+        text = ' '.join(words)
+    
+    # Final cleanup
+    text = text.strip()
+    
+    # Ensure max consecutive whitespace
+    if max_consecutive_whitespace:
+        text = re.sub(
+            r'\s{{{},}}'.format(max_consecutive_whitespace+1), 
+            ' ' * max_consecutive_whitespace, 
+            text
+        )
+    
+    return text
+
+def preprocess(text,vector_store):
+  nlp = vector_store.nlp
+  doc = nlp(str(text))
+  stop_words = nlp.Defaults.stop_words
+  preprocessed_text = []
+  for token in doc:
+    if token.is_punct or token.like_num or token in stop_words or token.is_space:
+      continue
+    preprocessed_text.append(token.lemma_.lower().strip())
+  return ' '.join(preprocessed_text)
+
+def retrieve_full_entry(vector_store, doc_store, query: str, k: int = 5):
+    """Search vector store and return full JSON entries in relevance order"""
+    # 1. Perform similarity search with scores
+    results = vector_store.similarity_search_with_score(query, k=k)
+    # 2. Track document relevance using best chunk score
+    chunk_groups = {}
+    
+    for doc, score in results:
+        print(chunk_groups)
+        doc_id = doc.metadata["id"]
+        print(f"evaluating {doc_id}")
+        # Initialize document entry
+        if doc_id not in chunk_groups:
+            chunk_groups[doc_id] = {"min_score": float('inf')}
+        print(f"current score is {chunk_groups[doc_id]["min_score"]}")
+        # Track best (lowest) score for document
+        if score < chunk_groups[doc_id]["min_score"]:
+            print(f"score updated: from {chunk_groups[doc_id]["min_score"]} to {score}")
+            chunk_groups[doc_id]["min_score"] = score
+
+        #chunk_groups[doc_id]["chunks"].append(doc)
+
+    # 3. Sort documents by relevance (best score first)
+    sorted_doc_ids = sorted(
+        chunk_groups.keys(),
+        key=lambda doc_id: chunk_groups[doc_id]["min_score"]
+    )
+    # 4. Assemble final results in relevance order
     full_results = []
-    for doc_id, data in grouped_results.items():
-        # Sort chunks by index
-        data["chunks"].sort(key=lambda x: x.metadata["chunk_index"])
-        assembled_content = " ".join([chunk.page_content for chunk in data["chunks"]])
-        
-        # Get full JSON entry
-        full_entry = doc_store[doc_id]
+    for doc_id in sorted_doc_ids:
+        # data = chunk_groups[doc_id]
+        # data["chunks"].sort(key=lambda x: x.metadata["chunk_index"])
+        # assembled_content = " ".join(chunk.page_content for chunk in data["chunks"])
         
         full_results.append({
             "id": doc_id,
-            "full_entry": full_entry,
-            "assembled_content": assembled_content,
-            "retrieved_chunks": len(data["chunks"])
+            "full_entry": doc_store[doc_id],
+            "min_score": chunk_groups[doc_id]["min_score"]  # Optional: for debugging
         })
     
     return full_results
@@ -266,23 +335,30 @@ def testing_function():
         json_data = json.load(f)
     all_docs = []
     doc_store = {}  # To store full JSON entries for retrieval
-    print("init from test function")
     fais_indexer = FaissIndexer("src/data/","faiss_index.fais","en_core_web_md")
     vector_store = fais_indexer.vector_store
 
     text_splitter = RecursiveCharacterTextSplitter(
-    chunk_size=1500,          # Character-based splitting
-    chunk_overlap=50,
+    chunk_size=50,          # Character-based splitting
+    chunk_overlap=15,
     separators=["\n\n", "\n", ". ", " ", ""]
-)
+    )
+    
+
+    # text_splitter = TokenTextSplitter(
+    # chunk_size=200,           # Optimal for most sentence transformers
+    # chunk_overlap=100,
+    # encoding_name="cl100k_base"  # For OpenAI/compatible models
+    # )
 
     for entry in json_data[:5]:
         print(entry["ticket_number"])
         doc_store[entry["ticket_number"]] = entry  # Store full entry
-        
-        # Only chunk if content exceeds threshold (300 chars)
-        if len(entry["issue_description"]) > 1500:
-            chunks = text_splitter.split_text(entry["issue_description"])
+        cleaned_text = clean_text(entry["issue_description"])
+        cleaned_text = preprocess(cleaned_text,fais_indexer)
+        # Only chunk if contsent exceeds threshold (300 chars)
+        if len(entry["issue_description"]) > 100:
+            chunks = text_splitter.split_text(cleaned_text)
             for i, chunk in enumerate(chunks):
                 metadata = {
                     "id": entry["ticket_number"],
@@ -304,19 +380,17 @@ def testing_function():
                 "chunk_index": 0,
                 "total_chunks": 1
             }
-            all_docs.append(Document(page_content=entry["issue_description"], metadata=metadata))
-
+            all_docs.append(Document(page_content=cleaned_text, metadata=metadata))
     ## adding docsvia the main method
     #vector_store.add_documents(all_docs)
-    print("--- all docs ---")
-    print(all_docs)
     fais_indexer.add_documents(all_docs)
 
     # fais_indexer = None
 
     # fais_indexer = FaissIndexer("src/data/","faiss_index.fais","en_core_web_md")
 
-    query = "Linux Servers with high cpu usage"
+    query = "Servers with high cpu usage"
+    query = "linux server issue"
     results = retrieve_full_entry(vector_store,doc_store,query)
 
     print("\nTop results for query:", query)
@@ -326,8 +400,8 @@ def testing_function():
         print(f"network: {res['full_entry']['network']}")
         print(f"responsibility: {res['full_entry']['responsibility']}")
         print(f"main_ticket: {res['full_entry']['main_office_ticket']}")
-        print(f"content: {res['assembled_content'][:150]}...")
-        print(f"Retrieved {res['retrieved_chunks']} chunks from {res['full_entry']['ticket_number']}")
+        print(f"content: {res['full_entry']["issue_description"][:150]}...")
+        print(f"With chunk with min score: {res["min_score"]}")
 
 if __name__ == '__main__':
-    testing_function()
+    testing_function() 

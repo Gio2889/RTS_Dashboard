@@ -3,8 +3,7 @@ import requests
 import threading
 import time
 import streamlit as st
-import chromadb
-from chromadb.utils import embedding_functions
+
 import hashlib
 import json
 import openai
@@ -15,15 +14,14 @@ from datetime import datetime
 # os.environ["OPENAI_API_KEY"] = "your-api-key"
 
 class DataLoader:
-    def __init__(self, status_column, index_fields, interval=300):
-    self.st        
-
+    def __init__(self):
+        self.data_idx = 0
+        self.interval= 30 #second for data checks
+        self.data = pd.DataFrame()
+        self.new_data = pd.DataFrame()
     def _fetch_data(self):
         try:
-            response = requests.get(self.api_url)
-            response.raise_for_status()
-            new_data = pd.DataFrame(response.json())
-            
+            with 
             if new_data.empty:
                 return
                 
